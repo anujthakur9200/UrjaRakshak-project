@@ -1,0 +1,156 @@
+# UrjaRakshak — Multi-service Docker Compose
+# MERN + Python microservices architecture
+# Usage: docker-compose up -d
+# Then seed demo data: docker-compose exec python-api python seed_demo_data.py
+
+version: '3.8'
+
+services:
+  # ── Python FastAPI Backend (Physics Engine) ─────────────────────────────
+  python-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: urjarakshak-python-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://urjarakshak:urjarakshak@postgres:5432/urjarakshak
+      - SECRET_KEY=docker-dev-secret-change-in-production-32chars!!
+      - ENABLE_STRICT_ETHICS=true
+      - ENABLE_AUDIT_LOGGING=true
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Node.js Express Backend (Real-time + API Gateway) ───────────────────
+  nodejs-api:
+    build:
+      context: ./nodejs-backend
+      dockerfile: Dockerfile
+    container_name: urjarakshak-nodejs-api
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+      - MONGODB_URL=mongodb://urjarakshak:urjarakshak@mongodb:27017/urjarakshak?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=nodejs-jwt-secret-dev-change-in-production
+      - PYTHON_BACKEND_URL=http://python-api:8000
+      - CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Next.js Frontend ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: urjarakshak-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_NODE_API_URL=http://localhost:4000
+    depends_on:
+      - python-api
+      - nodejs-api
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+
+  # ── PostgreSQL (Physics analysis history, audit logs) ───────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: urjarakshak-postgres
+    environment:
+      - POSTGRES_DB=urjarakshak
+      - POSTGRES_USER=urjarakshak
+      - POSTGRES_PASSWORD=urjarakshak
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urjarakshak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MongoDB (Grid topology, session data, real-time cache) ──────────────
+  mongodb:
+    image: mongo:7-jammy
+    container_name: urjarakshak-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=urjarakshak
+      - MONGO_INITDB_ROOT_PASSWORD=urjarakshak
+      - MONGO_INITDB_DATABASE=urjarakshak
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Redis (Real-time metrics, session store, job queue) ─────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: urjarakshak-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - urjarakshak-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  mongodb-data:
+  redis-data:
+
+networks:
+  urjarakshak-net:
+    driver: bridge
