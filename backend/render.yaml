@@ -1,0 +1,34 @@
+# UrjaRakshak — Render Deployment Blueprint (FREE TIER)
+# Deploy at: https://dashboard.render.com/new/blueprint
+# FREE plan: 512MB RAM, shared CPU, spins down after 15min inactivity (cold start ~30s)
+
+services:
+  - type: web
+    name: urjarakshak-backend
+    env: python
+    plan: free                    # ✅ Completely free — no credit card required
+    region: oregon                # US Oregon region
+    branch: main
+
+    buildCommand: "pip install -r requirements-render-free.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: ENABLE_STRICT_ETHICS
+        value: "true"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false               # Add your Supabase DATABASE_URL in Render dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false               # Add your Vercel frontend URL after deploying frontend
+      - key: OPENAI_API_KEY
+        sync: false               # Optional: add your OpenAI key to enable AI interpretation

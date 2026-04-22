@@ -1,0 +1,82 @@
+#!/bin/bash
+# Run once after cloning to initialise Alembic migrations
+# Usage: chmod +x setup_migrations.sh && ./setup_migrations.sh
+
+set -e
+echo "Initialising Alembic migrations..."
+
+# Init alembic (creates migrations/ directory)
+alembic init migrations
+
+# Patch alembic.ini to read DATABASE_URL from environment
+sed -i 's|sqlalchemy.url = .*|sqlalchemy.url = |' alembic.ini
+
+# Patch env.py to use async engine and read from app.config
+cat > migrations/env.py << 'ENVEOF'
+import asyncio
+import os
+from logging.config import fileConfig
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+from alembic import context
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Import all models so Base.metadata has all tables
+from app.models import db_models  # noqa
+from app.database import Base
+
+target_metadata = Base.metadata
+
+# Read DATABASE_URL from environment
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/urjarakshak")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+
+def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(url=url, target_metadata=target_metadata, literal_binds=True,
+                      dialect_opts={"paramstyle": "named"})
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.", poolclass=pool.NullPool,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    asyncio.run(run_async_migrations())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+ENVEOF
+
+echo "Generating initial migration from existing models..."
+alembic revision --autogenerate -m "initial_schema"
+
+echo ""
+echo "✅ Alembic setup complete."
+echo "   To apply:  alembic upgrade head"
+echo "   To create new migration after model change:  alembic revision --autogenerate -m 'describe_change'"
+echo "   To rollback one:  alembic downgrade -1"

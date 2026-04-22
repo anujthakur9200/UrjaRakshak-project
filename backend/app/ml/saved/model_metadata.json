@@ -1,0 +1,11 @@
+{
+  "n_samples": 200,
+  "n_features": 7,
+  "score_mean": 0.13520241220699297,
+  "score_std": 0.053882019499242734,
+  "score_min": -0.05572113756065078,
+  "score_max": 0.21940207930278888,
+  "contamination": 0.05,
+  "n_estimators": 10,
+  "trained_at": "2026-03-19T17:20:29.775749"
+}
